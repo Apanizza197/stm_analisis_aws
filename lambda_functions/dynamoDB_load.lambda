@@ -1,0 +1,80 @@
+import boto3
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import json
+
+def lambda_handler(event, context):
+
+   host = "pg-stm.cxvntydrp67z.us-east-1.rds.amazonaws.com"
+   username = "postgres"
+   password = "AWSC0urs3#UM"
+   database = "stmdb"
+
+   pg_db = psycopg2.connect (
+      host = host,
+      database = database,
+      user = username,
+      password = password
+     )
+
+   dynamodb = boto3.resource ('dynamodb')
+   ddb_table = dynamodb.Table ('ddb_viajes_stm')
+  
+   cur = pg_db.cursor(cursor_factory = RealDictCursor)
+   sql_stm = '''select to_char (vs.fecha_evento, 'YYYYMM') year_month
+                      ,extract (dow from vs.fecha_evento) day_of_week
+                      ,cp.calle
+                      ,cp.esquina
+                      ,sum (vs.cant_pasajeros) cant_pasajeros
+                from   viajes_stm.viaje_stm vs
+                join   viajes_stm.linea l on l.codigo_linea = vs.codigo_linea  
+                join   viajes_stm.cod_paradas cp ON cp.cod_ubic_parada = vs.codigo_parada AND cp.desc_linea = l.descripcion AND cp.cod_varian = vs.sevar_codigo
+                group by to_char (vs.fecha_evento, 'YYYYMM'), extract (dow from vs.fecha_evento), cp.calle, cp.esquina
+                having sum (vs.cant_pasajeros) >= 5000
+                order by 1, 2, 5 desc
+             '''
+   cur.execute(sql_stm)
+  
+   year_month = 0
+   day_of_week = -1
+   cbs_list = []
+  
+   for row in cur.fetchall():
+      if year_month == 0:
+         year_month = row['year_month']
+         day_of_week = row['day_of_week']
+         cbs_list = [{"Calle": row['calle'], "Esquina": row['esquina'], "CantPasajeros": str (row['cant_pasajeros'])}]
+      else:
+         if year_month != row['year_month']:
+            ddb_table.put_item (
+              Item = {'YearMonth' : str (year_month),
+                      'DayOfWeek' : str (day_of_week),
+                      'CrowdedBusStops' : cbs_list
+                      }
+              )
+           
+            year_month = row['year_month']
+            day_of_week = row['day_of_week']
+            cbs_list = [{"Calle": row['calle'], "Esquina": row['esquina'], "CantPasajeros": str (row['cant_pasajeros'])}]
+         else:
+            if day_of_week != row['day_of_week']:
+               ddb_table.put_item (
+                 Item = {'YearMonth' : str (year_month),
+                         'DayOfWeek' : str (day_of_week),
+                         'CrowdedBusStops' : cbs_list
+                         }
+                 )
+               day_of_week = row['day_of_week']
+               cbs_list = [{"Calle": row['calle'], "Esquina": row['esquina'], "CantPasajeros": str (row['cant_pasajeros'])}]
+            else:   
+               cbs_list.append ({"Calle": row['calle'], "Esquina": row['esquina'], "CantPasajeros": str (row['cant_pasajeros'])})
+
+   ddb_table.put_item (
+     Item = {'YearMonth' : str (year_month),
+             'DayOfWeek' : str (day_of_week),
+             'CrowdedBusStops' : cbs_list
+             }
+        )
+#  json_result = json.dumps(cur.fetchall())
+#  return json_result
+   return
