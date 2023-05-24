@@ -1,0 +1,30 @@
+Description: Template to create function to startup PostgreSQL intance in RDS
+Resources:
+  ShutdownDB:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: shutdown_db
+      Handler: index.lambda_handler
+      Description: Function to stop PostgreSQL intance in RDS
+      Role: arn:aws:iam::631504061440:role/LabRole
+      Code:
+        ZipFile: |
+          import boto3
+
+          def lambda_handler(event, context):
+            rds_client = boto3.client('rds')
+            #Nombre de la bdd
+            instance_id = 'pg-stm'
+
+            # Start the RDS instance
+            response = rds_client.stop_db_instance(DBInstanceIdentifier=instance_id)
+
+            # Print the response
+            print(response)
+
+            return {
+              'statusCode': 200,
+              'body': 'RDS instance stoped successfully.'
+              }      
+      Runtime: python3.8
+         
